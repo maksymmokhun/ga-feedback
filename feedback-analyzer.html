@@ -370,9 +370,30 @@ nav {
             <input type="text" id="m_end" class="meta-input" placeholder="напр. 27 травня 2026">
           </div>
         </div>
-        <div class="meta-field" style="margin-bottom:10px">
+        <div class="meta-field" style="grid-column:1/-1;margin-bottom:2px">
           <label>Додаткові посилання (необов'язково)</label>
-          <input type="text" id="m_links" class="meta-input" placeholder="YouTube playlist, Figma, Google Drive…">
+        </div>
+        <div class="meta-grid" style="margin-bottom:10px">
+          <div class="meta-field">
+            <label>Google Drive</label>
+            <input type="url" id="m_drive" class="meta-input" placeholder="https://drive.google.com/…">
+          </div>
+          <div class="meta-field">
+            <label>Worksheet</label>
+            <input type="url" id="m_worksheet" class="meta-input" placeholder="https://docs.google.com/…">
+          </div>
+          <div class="meta-field">
+            <label>EduWorkspace</label>
+            <input type="url" id="m_edu" class="meta-input" placeholder="https://digital.gen.tech/…">
+          </div>
+          <div class="meta-field">
+            <label>YouTube Playlist</label>
+            <input type="url" id="m_youtube" class="meta-input" placeholder="https://youtube.com/playlist…">
+          </div>
+          <div class="meta-field">
+            <label>Figma</label>
+            <input type="url" id="m_figma" class="meta-input" placeholder="https://figma.com/…">
+          </div>
         </div>
         <div class="meta-field">
           <label>Будь-що інше для Claude</label>
@@ -529,7 +550,9 @@ function getMetaData(){
     ['m_lectures','К-сть лекцій/воркшопів'],['m_networking','К-сть нетворкінгів'],
     ['m_mentors','К-сть менторів'],['m_jobfair','Job Fair — к-сть компаній'],
     ['m_start','Старт навчання'],['m_end','Завершення навчання'],
-    ['m_links','Посилання'],['m_extra','Додатково']
+    ['m_drive','Google Drive'],['m_worksheet','Worksheet'],
+    ['m_edu','EduWorkspace'],['m_youtube','YouTube Playlist'],
+    ['m_figma','Figma'],['m_extra','Додатково']
   ];
   const parts=[];
   fields.forEach(([id,label])=>{ const el=document.getElementById(id); if(el&&el.value.trim()) parts.push(`${label}: ${el.value.trim()}`); });
@@ -554,7 +577,7 @@ function buildDataStr(headers,rows,stats,name){
   if(stats._liked){ out+='\nLIKED DISTRIBUTION:\n'; Object.entries(stats._liked).forEach(([k,v])=>out+=`${k}: ${v}\n`); }
   out+=`\nALL RESPONSES:\n`;
   rows.forEach((row,ri)=>{ out+=`\n[R${ri+1}]\n`; headers.forEach((h,ci)=>{ const v=String(row[ci]||'').trim(); if(v&&v!=='0') out+=`${String(h).slice(0,70)}: ${v.slice(0,400)}\n`; }); });
-  return out.slice(0,65000);
+  return out.slice(0,50000);
 }
 
 // ── API ──
@@ -634,7 +657,7 @@ async function callClaude(apiKey,dataStr,count,progName){
   const resp=await fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',
     headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:5000,system:systemPrompt,messages:[{role:'user',content:`Фідбек програми (${count} відповідей):\n\n${dataStr}`}]})
+    body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:8000,system:systemPrompt,messages:[{role:'user',content:`Фідбек програми (${count} відповідей):\n\n${dataStr}`}]})
   });
   if(!resp.ok){
     const err=await resp.json().catch(()=>({}));
@@ -644,8 +667,27 @@ async function callClaude(apiKey,dataStr,count,progName){
     throw new Error(msg);
   }
   const data=await resp.json();
-  const text=data.content[0].text.trim().replace(/^```json\s*/,'').replace(/\s*```$/,'');
-  return JSON.parse(text);
+  let text=data.content[0].text.trim().replace(/^```json\s*/,'').replace(/\s*```$/,'');
+
+  // Robust JSON parse: if truncated, try to close it
+  try {
+    return JSON.parse(text);
+  } catch(e1) {
+    // Try truncating to last complete top-level field
+    const lastBrace = text.lastIndexOf('"}');
+    if(lastBrace > 0) {
+      const truncated = text.slice(0, lastBrace + 2);
+      // Close open arrays/objects
+      const fixed = truncated + ']}]}';
+      try { return JSON.parse(fixed); } catch(e2){}
+      // More aggressive: find last complete section
+      const lastSection = text.lastIndexOf('},\n    {');
+      if(lastSection > 0) {
+        try { return JSON.parse(text.slice(0, lastSection) + '}]}'); } catch(e3){}
+      }
+    }
+    throw new Error('Claude повернув некоректний JSON. Спробуй ще раз — це тимчасова помилка.');
+  }
 }
 
 // ── RENDER ──
